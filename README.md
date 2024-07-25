@@ -36,14 +36,16 @@ pip install -r requirements.txt
 
 ### Dependencies
 ```bash
-streamlit
-langchain_google_genai
-langchain_core
 requests
-beautifulsoup4
 pytesseract
-Pillow
-chromadb
+langchain
+faiss-cpu
+langchain-google-genai
+streamlit
+langchain_community
+requests
+bs4
+langchain_core
 ```
 ## Configuration
 Google Gemini API Key: Set up your Google Gemini API key in the environment. You can do this by adding GOOGLE_API_KEY to your environment variables or entering it in the Streamlit interface.
