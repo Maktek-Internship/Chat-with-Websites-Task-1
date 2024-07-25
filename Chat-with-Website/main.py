@@ -1,27 +1,29 @@
-#import atexit
 import os
 import logging
 import streamlit as st
 from langchain.chains import RetrievalQA
-from langchain_google_genai import GoogleGenerativeAI #from langchain.chat_models import ChatOpenAI
-from langchain.embeddings import GooglePalmEmbeddings #OpenAIEmbeddings
 from langchain.prompts.chat import (ChatPromptTemplate,
                                     HumanMessagePromptTemplate,
                                     SystemMessagePromptTemplate)
-from langchain.text_splitter import CharacterTextSplitter
-from langchain.vectorstores import Chroma
-#import openai
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 import requests
 from bs4 import BeautifulSoup
 from PIL import Image
 from io import BytesIO
 import pytesseract
 from langchain_core.messages import HumanMessage, AIMessage
+from langchain.vectorstores.faiss import FAISS
+from langchain_groq import ChatGroq
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
+from dotenv import load_dotenv
 
-# Ensure pytesseract is properly configured
+
+load_dotenv()
+
+#pytesseract config
+
 pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'  # Adjust this path based on your installation
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -94,50 +96,31 @@ def crawl_website(url):
 
     return soup.get_text()
 
-def process_website_content(website_text, DB, key):
+def process_website_content(website_text):
     # Split the loaded data
-    text_splitter = CharacterTextSplitter(separator='\n', chunk_size=1000, chunk_overlap=40)
-    docs = text_splitter.split_text(website_text)
-
-    # Create OpenAI embeddings
-    google_embeddings = GooglePalmEmbeddings(model="models/embedding-001")
-
-    # Create a Chroma vector database from the documents
-    vectordb = Chroma.from_texts(texts=docs, embedding=google_embeddings, persist_directory=DB)
+    # split the document into chunks
+    text_splitter = RecursiveCharacterTextSplitter()
+    text_chunks = text_splitter.split_text(website_text)
     
-    return vectordb
-
-#to delete the persistent db at exit 
-#if the db isn't deleted, it causes problems
-# def cleanup():
-#     ABS_PATH = os.path.dirname(os.path.abspath(__file__))
-#     DB_DIR = os.path.join(ABS_PATH, "db")
-#     if os.path.exists(DB_DIR):
-#         shutil.rmtree(DB_DIR)
-#         logger.info(f"Deleted the persistent database directory: {DB_DIR}")
-
+    # create a vectorstore from the chunks
+    vector_store = FAISS.from_texts(text_chunks, GoogleGenerativeAIEmbeddings(model="models/embedding-001"))
+    return vector_store
 
 
 def main():
-    ABS_PATH = os.path.dirname(os.path.abspath(__file__))
-    DB_DIR = os.path.join(ABS_PATH, "db")
-
 
     # Set the title and subtitle of the app
     st.title('🦜🔗 Chat With Website')
     st.subheader('Input your website URL, ask questions, and receive answers directly from the website.')
     
     with st.sidebar:
-        key = st.text_input("Enter Google Gemini API Key")
         url = st.text_input("Insert The website URL")
     
-    if not key or not url:
-        st.info("Enter Valid URL and API Key.")
+    if not url:
+        st.info("Enter Valid URL")
     else:    
         prompt = st.chat_input("Ask a question (query/prompt)")
         
-        os.environ['GOOGLE_API_KEY'] = key
-
         if prompt:
             
             if "chat_history" not in st.session_state:
@@ -154,14 +137,17 @@ def main():
             if website_text is None:
                 return
             if "vectordb" not in st.session_state:
-                st.session_state.vectordb = process_website_content(website_text, DB_DIR, key)
+                st.session_state.vectordb = process_website_content(website_text)
 
 
             # Create a retriever from the Chroma vector database
             retriever = st.session_state.vectordb.as_retriever(search_kwargs={"k": 3})
 
             # Use a ChatOpenAI model
-            llm = GoogleGenerativeAI(model='gemini-1.5-pro')
+            llm = ChatGoogleGenerativeAI(
+                temperature=0,
+                model="gemini-1.5-pro",
+            )
 
             # Create a RetrievalQA from the model and retriever
             qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever)
@@ -187,3 +173,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
